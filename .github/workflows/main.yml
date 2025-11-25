@@ -1,6 +1,5 @@
 name: Tabu Search Evaluation (N/D)
 
-# Cho phép chạy workflow thủ công và định nghĩa các inputs
 on:
   workflow_dispatch:
     inputs:
@@ -26,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         
       # --- 1. BIÊN DỊCH MÃ C++ ---
-      # Biên dịch mã đã chỉnh sửa (move1020sua_v2.cpp)
+      # Đảm bảo bạn đã đặt tên file C++ là move1020sua_v2.cpp trong repo
       - name: Compile C++ Solver
         run: g++ -o tsp-solver move1020sua_v2.cpp -std=c++17 -O2
 
@@ -34,12 +33,9 @@ jobs:
       - name: Initialize Summary CSV
         run: |
           echo "Instance,N/10_Cost,N/10_BestIter,N/10_Time,N/7_Cost,N/7_BestIter,N/7_Time,N/8_Cost,N/8_BestIter,N/8_Time" > main_summary.csv
-          # Chuẩn bị dòng dữ liệu cho instance hiện tại (để điền kết quả vào)
-          # Định dạng ban đầu: Instance, <rỗng> x 9
-          INSTANCE_NAME="${{ github.event.inputs.instance_file }}"
-          echo -n "$INSTANCE_NAME" > current_instance_data.txt
           
-          # Lấy danh sách hệ số và tạo mảng vị trí
+          # Lấy danh sách hệ số và xác định vị trí cột
+          # Logic: 10->Cột 1, 7->Cột 4, 8->Cột 7 (tương ứng với các block 3 cột trong CSV)
           DENOMINATORS=($(echo ${{ github.event.inputs.tabu_denominators }} | tr ',' ' '))
           for DENOM in "${DENOMINATORS[@]}"; do
             if [ "$DENOM" == "10" ]; then N10_POS=1; fi
@@ -49,36 +45,38 @@ jobs:
           
           echo "$N10_POS $N7_POS $N8_POS" > positions.txt
           
-      # --- 3. CHẠY LẶP LẠI (Sử dụng Matrix Strategy) ---
-      # Sử dụng Ma trận chiến lược để lặp qua các hệ số Tabu
+      # --- 3. CHẠY THUẬT TOÁN VÀ THU THẬP DỮ LIỆU ---
       - name: Run Tabu Search for Denominators
         id: run_tests
         run: |
-          # Đọc các giá trị vị trí đã tính
           read -r N10_POS N7_POS N8_POS < positions.txt
           
-          # Khởi tạo một mảng dữ liệu với 9 giá trị trống
+          # Khởi tạo mảng dữ liệu rỗng (9 phần tử cho 3 cấu hình x 3 chỉ số)
           DATA=()
           for i in {1..9}; do DATA+=(""); done
           
-          # Lặp qua từng hệ số trong danh sách đầu vào
+          # Xử lý tên file (Bash String Manipulation - Đã FIX lỗi tại đây)
+          INSTANCE_FILE="${{ github.event.inputs.instance_file }}"
+          INSTANCE_BASENAME="${INSTANCE_FILE%.*}" 
+          
           IFS=',' read -r -a DENOMINATORS <<< "${{ github.event.inputs.tabu_denominators }}"
           
           for DENOM in "${DENOMINATORS[@]}"; do
-            echo "--- Chạy với Denominator N/$DENOM ---"
+            echo "------------------------------------------------"
+            echo "Running with Tabu Tenure = N / $DENOM"
             
-            # Thực thi chương trình C++
-            # Output là: Denom,BestCost,BestIter,Runtime
-            OUTPUT=$(./tsp-solver "${{ github.event.inputs.instance_file }}" "$DENOM" "${{ github.event.inputs.max_iterations }}" | tail -n 1)
+            # Chạy file thực thi. Output cuối cùng của chương trình là dòng CSV tóm tắt.
+            OUTPUT=$(./tsp-solver "$INSTANCE_FILE" "$DENOM" "${{ github.event.inputs.max_iterations }}" | tail -n 1)
             
-            # Cắt chuỗi output thành các trường (Cost, BestIter, Time)
+            # Parse output: Denom, Cost, BestIter, Time
             IFS=',' read -r _ COST BESTITER TIME <<< "$OUTPUT"
             
-            # Ghi Log chi tiết (tên log đã được đặt trong code C++)
-            LOG_FILE="${{ github.event.inputs.instance_file/.*/ }}_${DENOM}_log.txt"
-            echo "Log chi tiết được lưu trong $LOG_FILE"
+            # Thông báo log file
+            LOG_FILE="${INSTANCE_BASENAME}_${DENOM}_log.txt"
+            echo "Finished. Detailed log saved to: $LOG_FILE"
+            echo "Result: Cost=$COST, Iter=$BESTITER, Time=$TIME"
             
-            # Cập nhật mảng DATA
+            # Điền dữ liệu vào đúng cột
             case "$DENOM" in
               10) START=$((N10_POS));;
               7) START=$((N7_POS));;
@@ -89,36 +87,30 @@ jobs:
             DATA[$((START))]="$COST"
             DATA[$((START + 1))]="$BESTITER"
             DATA[$((START + 2))]="$TIME"
-            
           done
           
-          # Xuất dòng dữ liệu cuối cùng
-          echo -n "${{ github.event.inputs.instance_file }}" >> final_summary.csv
+          # Ghi dòng tổng kết vào file CSV
+          echo -n "$INSTANCE_FILE" >> final_summary.csv
           for ITEM in "${DATA[@]}"; do
             echo -n ",$ITEM" >> final_summary.csv
           done
           echo "" >> final_summary.csv
           
-      # --- 4. TỔNG HỢP VÀ LƯU ARTIFACTS ---
-
-      # Nối kết quả cuối cùng vào file tổng kết
-      - name: Combine Summary File
+      # --- 4. TỔNG HỢP VÀ UPLOAD KẾT QUẢ ---
+      - name: Combine and Upload Results
         run: |
           cat final_summary.csv >> main_summary.csv
-          # In ra kết quả để kiểm tra nhanh
+          echo "=== PREVIEW SUMMARY CSV ==="
           cat main_summary.csv
 
-      # Lưu file tổng kết CSV
       - name: Upload Summary CSV
         uses: actions/upload-artifact@v4
         with:
           name: Tabu-Search-Summary-${{ github.event.inputs.instance_file }}
           path: main_summary.csv
 
-      # Lưu tất cả các file log chi tiết
       - name: Upload Detailed Logs
         uses: actions/upload-artifact@v4
         with:
           name: Detailed-Logs-${{ github.event.inputs.instance_file }}
-          # Path sẽ tìm kiếm tất cả các file log có đuôi _log.txt
-          path: "*.txt"
+          path: "*_log.txt"
