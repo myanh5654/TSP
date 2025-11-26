@@ -25,18 +25,21 @@ jobs:
         uses: actions/checkout@v4
         
       # --- 1. BIÊN DỊCH MÃ C++ ---
-      # Đã cập nhật lại thành move1020sua_v2.cpp theo Cách 1 của bạn
-      # QUAN TRỌNG: File move1020sua_v2.cpp trong repo phải chứa code C++ mới (có argc, argv)
       - name: Compile C++ Solver
+        # Đảm bảo tên file C++ khớp với file trong repo của bạn (move1020sua_v2.cpp)
         run: g++ -o tsp-solver move1020sua_v2.cpp -std=c++17 -O2
 
       # --- 2. KHỞI TẠO FILE TỔNG KẾT CSV ---
       - name: Initialize Summary CSV
+        # SỬ DỤNG ENV ĐỂ TRÁNH LỖI CÚ PHÁP
+        env:
+          TABU_DENOMS: ${{ github.event.inputs.tabu_denominators }}
         run: |
           echo "Instance,N/10_Cost,N/10_BestIter,N/10_Time,N/7_Cost,N/7_BestIter,N/7_Time,N/8_Cost,N/8_BestIter,N/8_Time" > main_summary.csv
           
-          # Lấy danh sách hệ số và xác định vị trí cột
-          DENOMINATORS=($(echo ${{ github.event.inputs.tabu_denominators }} | tr ',' ' '))
+          # Dùng biến môi trường $TABU_DENOMS thay vì ${{ ... }} trực tiếp
+          DENOMINATORS=($(echo "$TABU_DENOMS" | tr ',' ' '))
+          
           for DENOM in "${DENOMINATORS[@]}"; do
             if [ "$DENOM" == "10" ]; then N10_POS=1; fi
             if [ "$DENOM" == "7" ]; then N7_POS=4; fi
@@ -48,24 +51,29 @@ jobs:
       # --- 3. CHẠY THUẬT TOÁN ---
       - name: Run Tabu Search for Denominators
         id: run_tests
+        # KHAI BÁO ENV CHO BƯỚC NÀY
+        env:
+          INSTANCE_FILE_INPUT: ${{ github.event.inputs.instance_file }}
+          TABU_DENOMS: ${{ github.event.inputs.tabu_denominators }}
+          MAX_ITER: ${{ github.event.inputs.max_iterations }}
         run: |
           read -r N10_POS N7_POS N8_POS < positions.txt
           
           DATA=()
           for i in {1..9}; do DATA+=(""); done
           
-          # FIX LỖI ẢNH 2: Dùng Bash để cắt tên file thay vì cú pháp ${{ }}
-          INSTANCE_FILE="${{ github.event.inputs.instance_file }}"
+          # Sử dụng biến môi trường để xử lý tên file an toàn
+          INSTANCE_FILE="$INSTANCE_FILE_INPUT"
           INSTANCE_BASENAME="${INSTANCE_FILE%.*}" 
           
-          IFS=',' read -r -a DENOMINATORS <<< "${{ github.event.inputs.tabu_denominators }}"
+          IFS=',' read -r -a DENOMINATORS <<< "$TABU_DENOMS"
           
           for DENOM in "${DENOMINATORS[@]}"; do
             echo "------------------------------------------------"
             echo "Running with Tabu Tenure = N / $DENOM"
             
-            # Chạy file thực thi
-            OUTPUT=$(./tsp-solver "$INSTANCE_FILE" "$DENOM" "${{ github.event.inputs.max_iterations }}" | tail -n 1)
+            # Chạy file thực thi với các tham số từ biến môi trường
+            OUTPUT=$(./tsp-solver "$INSTANCE_FILE" "$DENOM" "$MAX_ITER" | tail -n 1)
             
             IFS=',' read -r _ COST BESTITER TIME <<< "$OUTPUT"
             
