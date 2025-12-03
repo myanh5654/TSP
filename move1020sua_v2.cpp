@@ -46,7 +46,6 @@ void precomputeDistances() {
 }
 
 void readInput(const string& filename) {
-    // Đoạn code đọc file giữ nguyên từ file gốc
     ifstream inFile(filename); 
     if (!inFile) { cerr << "LỖI: Không thể mở tệp " << filename << endl; exit(1); }
 
@@ -141,26 +140,23 @@ void diversifyTour(vector<int>& tour, int strength) {
 }
 
 // ============================================================
-// 3. THUẬT TOÁN TABU SEARCH (FULL LOG VERSION)
+// 3. THUẬT TOÁN TABU SEARCH (FIXED LOGIC)
 // ============================================================
 
-// Hàm này trả về một chuỗi chứa kết quả tổng kết (Instance, Cost, Time, Denom)
 string runTabuSearch(const string& instanceName, int denom, int maxIterations) {
     auto start_time = chrono::high_resolution_clock::now();
 
-    // Tính toán Tabu Tenure dựa trên N và Denominator (Hệ số Tabu)
     const int TABU_TENURE = (N > 0 && denom > 0) ? (int)round((double)N / denom) : 10; 
     const int MAX_ITERATIONS = maxIterations; 
     const int DIVERSIFY_THRESHOLD = 150; 
     
-    // Tạo tên file log chi tiết: [instance]_[denom]_log.txt
+    // --- Tạo file Log ---
     string logFilename = instanceName;
     size_t lastdot = logFilename.find_last_of(".");
     if (lastdot != string::npos) logFilename.erase(lastdot);
     logFilename += "_" + to_string(denom) + "_log.txt";
     ofstream logFile(logFilename);
     
-    // Ghi tiêu đề log chi tiết
     logFile << "Current_Iter,Solution_Cost,Best_Cost,Next_Best_Found,Move_Type,Move_Desc,Tabu_List" << endl;
     
     vector<int> currentTour = createNearestNeighborTour(); 
@@ -174,7 +170,7 @@ string runTabuSearch(const string& instanceName, int denom, int maxIterations) {
     tabuMatrix.assign(N, vector<int>(N, 0)); 
     int noImprovement = 0; 
 
-    // Vòng lặp chính
+    // --- Vòng lặp chính ---
     for (int k = 1; k <= MAX_ITERATIONS; ++k) {
         noImprovement++;
         int moveType = rand() % 2; 
@@ -189,7 +185,7 @@ string runTabuSearch(const string& instanceName, int denom, int maxIterations) {
                 double delta = 0;
                 bool isTabu = false;
                 
-                // Move 1-0 (Insert)
+                // === MOVE 1-0 (INSERTION) ===
                 if (moveType == 0) {
                     if (i == j || i == (j + 1) % N) continue; 
                     int C = currentTour[i];
@@ -197,29 +193,37 @@ string runTabuSearch(const string& instanceName, int denom, int maxIterations) {
                     int B = currentTour[(i + 1) % N];
                     int X = currentTour[j];
                     int Y = currentTour[(j + 1) % N];
+
                     double rem = distMatrix[A][C] + distMatrix[C][B] + distMatrix[X][Y];
                     double add = distMatrix[A][B] + distMatrix[X][C] + distMatrix[C][Y];
                     delta = add - rem;
-                    // Kiểm tra Tabu: Nếu bất kỳ cạnh nào liên quan đến việc di chuyển C bị cấm
-                    // Ta chỉ cấm các cạnh (A, C), (C, B), (X, C), (C, Y)
-                    if (tabuMatrix[A][C] > k || tabuMatrix[C][B] > k || tabuMatrix[X][C] > k || tabuMatrix[C][Y] > k) isTabu = true;
+
+                    // Kiểm tra các cạnh MỚI (A-B, X-C, C-Y) có bị cấm không?
+                    if (tabuMatrix[A][B] > k || tabuMatrix[X][C] > k || tabuMatrix[C][Y] > k) {
+                        isTabu = true;
+                    }
                 }
-                // Move 2-0 (Block Insert)
+                // === MOVE 2-0 (BLOCK INSERTION) ===
                 else if (moveType == 1) {
                     if (i >= N - 1) continue; 
                     int i_next = i + 1;
                     if (j == i || j == i_next || j == (i - 1 + N) % N) continue;
+
                     int C = currentTour[i];
                     int D = currentTour[i_next];
                     int A = currentTour[(i - 1 + N) % N];
                     int B = currentTour[(i + 2) % N];
                     int X = currentTour[j];
                     int Y = currentTour[(j + 1) % N];
+
                     double rem = distMatrix[A][C] + distMatrix[D][B] + distMatrix[X][Y];
                     double add = distMatrix[A][B] + distMatrix[X][C] + distMatrix[D][Y];
                     delta = add - rem;
-                    // Kiểm tra Tabu: Chỉ cấm các cạnh liên quan đến khối (C, D)
-                    if (tabuMatrix[A][C] > k || tabuMatrix[D][B] > k || tabuMatrix[X][C] > k || tabuMatrix[D][Y] > k) isTabu = true;
+
+                    // Kiểm tra các cạnh MỚI (A-B, X-C, D-Y) có bị cấm không?
+                    if (tabuMatrix[A][B] > k || tabuMatrix[X][C] > k || tabuMatrix[D][Y] > k) {
+                        isTabu = true;
+                    }
                 }
 
                 if (currentCost + delta > 0) { 
@@ -241,49 +245,53 @@ string runTabuSearch(const string& instanceName, int denom, int maxIterations) {
             string moveTypeStr = "";
             string nextBestStr = (currentCost + bestDelta < bestCost) ? "Yes" : "No";
 
-            // Thực hiện di chuyển và cập nhật Tabu
             if (moveType == 0) { 
                 moveTypeStr = "1-0 (Ins)";
                 int id_C = currentTour[best_i];
-                int X_pos = best_j; 
+                int id_X = currentTour[best_j]; 
                 
-                // Loại bỏ C
-                currentTour.erase(currentTour.begin() + best_i);
-                
-                // Vị trí chèn C (sau X)
-                if (best_i < X_pos) X_pos--; // Bù trừ do erase
-                
-                currentTour.insert(currentTour.begin() + X_pos + 1, id_C);
+                int A = currentTour[(best_i - 1 + N) % N];
+                int B = currentTour[(best_i + 1) % N];
+                int Y = currentTour[(best_j + 1) % N]; // Thành phố sau X
 
-                // Cập nhật Tabu (C bị cấm di chuyển)
-                tabuMatrix[id_C][id_C] = k + TABU_TENURE; // Đơn giản hóa: cấm node C di chuyển
-                moveDescStr = to_string(id_C + 1) + " to pos after " + to_string(currentTour[X_pos] + 1);
+                // [SỬA LỖI] Cập nhật Tabu: Cấm các cạnh VỪA BỊ XÓA (A-C, C-B, X-Y)
+                // Để ngăn quay lại trạng thái cũ
+                tabuMatrix[A][id_C] = tabuMatrix[id_C][A] = k + TABU_TENURE;
+                tabuMatrix[id_C][B] = tabuMatrix[B][id_C] = k + TABU_TENURE;
+                tabuMatrix[id_X][Y] = tabuMatrix[Y][id_X] = k + TABU_TENURE;
+
+                moveDescStr = to_string(id_C + 1) + "-" + to_string(id_X + 1);
+
+                currentTour.erase(currentTour.begin() + best_i);
+                auto it = find(currentTour.begin(), currentTour.end(), id_X); 
+                int new_pos = distance(currentTour.begin(), it);
+                currentTour.insert(currentTour.begin() + new_pos + 1, id_C);
             } 
             else if (moveType == 1) { 
                 moveTypeStr = "2-0 (Blk)";
                 int i = best_i; 
-                int i_next = i + 1;
-                int j = best_j; // Chỉ mục của X
+                int j = best_j;
+                
                 int id_C = currentTour[i];
-                int id_D = currentTour[i_next];
+                int id_D = currentTour[i+1];
                 int id_X = currentTour[j]; 
+                
+                int A = currentTour[(i - 1 + N) % N];
+                int B = currentTour[(i + 2) % N];
+                int Y = currentTour[(j + 1) % N]; // Thành phố sau X
 
-                // Lấy khối (C, D)
-                vector<int> block = {currentTour[i], currentTour[i_next]};
-                
-                // Loại bỏ khối
+                // [SỬA LỖI] Cập nhật Tabu: Cấm các cạnh VỪA BỊ XÓA (A-C, D-B, X-Y)
+                tabuMatrix[A][id_C] = tabuMatrix[id_C][A] = k + TABU_TENURE;
+                tabuMatrix[id_D][B] = tabuMatrix[B][id_D] = k + TABU_TENURE;
+                tabuMatrix[id_X][Y] = tabuMatrix[Y][id_X] = k + TABU_TENURE;
+
+                moveDescStr = "[" + to_string(id_C + 1) + "," + to_string(id_D + 1) + "]-" + to_string(id_X + 1);
+
                 currentTour.erase(currentTour.begin() + i, currentTour.begin() + i + 2); 
-                
-                // Vị trí chèn khối (sau X)
-                if (j > i) j -= 2; // Bù trừ do erase 2 phần tử
-                
-                currentTour.insert(currentTour.begin() + j + 1, block.begin(), block.end());
-                
-                // Cập nhật Tabu (C và D bị cấm di chuyển)
-                tabuMatrix[id_C][id_C] = k + TABU_TENURE; 
-                tabuMatrix[id_D][id_D] = k + TABU_TENURE; 
-                
-                moveDescStr = "[" + to_string(id_C + 1) + "," + to_string(id_D + 1) + "] to pos after " + to_string(id_X + 1);
+                auto it = find(currentTour.begin(), currentTour.end(), id_X); 
+                int pos_X = distance(currentTour.begin(), it);
+                currentTour.insert(currentTour.begin() + pos_X + 1, id_D);
+                currentTour.insert(currentTour.begin() + pos_X + 1, id_C);
             }
 
             currentCost += bestDelta;
@@ -295,31 +303,26 @@ string runTabuSearch(const string& instanceName, int denom, int maxIterations) {
                 noImprovement = 0; 
             }
 
-            // --- GHI LOG CHI TIẾT ---
-            // 1. Chuẩn bị Tabu List string
+            // --- IN LOG BẢNG VÀ DANH SÁCH TABU ---
             string tabuListStr = "";
             int countTabu = 0;
+            // Duyệt ma trận đối xứng (chỉ cần tam giác trên)
             for(int r=0; r<N; ++r) { 
-                if(tabuMatrix[r][r] > k) { // Chỉ cấm node, nên chỉ check chéo
-                    tabuListStr += "(" + to_string(r+1) + ":" + to_string(tabuMatrix[r][r]) + ");";
-                    countTabu++;
+                for(int c=r+1; c<N; ++c) {
+                    if(tabuMatrix[r][c] > k) { 
+                        tabuListStr += "(" + to_string(r+1) + "-" + to_string(c+1) + ":" + to_string(tabuMatrix[r][c]) + ");";
+                        countTabu++;
+                    }
+                    if(countTabu >= 8) break; 
                 }
-                if (countTabu > 10) { tabuListStr += "..."; break; }
+                if (countTabu >= 8) { tabuListStr += "..."; break; }
             }
             if (tabuListStr.empty()) tabuListStr = "EMPTY";
 
-            // 2. Ghi dòng log
-            logFile << fixed << setprecision(2) 
-                    << k << ","
-                    << currentCost << ","
-                    << bestCost << ","
-                    << nextBestStr << ","
-                    << moveTypeStr << ","
-                    << moveDescStr << ","
-                    << tabuListStr << endl;
+            logFile << fixed << setprecision(2) << k << "," << currentCost << "," << bestCost << "," << nextBestStr << "," << moveTypeStr << "," << moveDescStr << "," << tabuListStr << endl;
 
-            // --- IN BẢNG TRÊN CONSOLE (để tiện debug/xem nhanh) ---
-            if (k % 100 == 0 || k == 1) { // In mỗi 100 lần lặp hoặc lần đầu
+            // In ra màn hình mỗi 100 vòng hoặc khi có Next Best
+            if (k % 100 == 0 || k == 1 || nextBestStr == "Yes") { 
                 cout << left 
                      << setw(8) << k 
                      << setw(15) << fixed << setprecision(2) << currentCost 
@@ -327,6 +330,8 @@ string runTabuSearch(const string& instanceName, int denom, int maxIterations) {
                      << setw(10) << nextBestStr 
                      << setw(12) << moveTypeStr
                      << setw(20) << moveDescStr << endl;
+                     
+                cout << "   |_ Tabu: " << tabuListStr << endl; // In danh sách cạnh bị cấm
             }
         }
 
@@ -345,13 +350,8 @@ string runTabuSearch(const string& instanceName, int denom, int maxIterations) {
     chrono::duration<double> elapsed = end_time - start_time;
     double runtime = elapsed.count();
     
-    // --- TRẢ VỀ CHUỖI KẾT QUẢ TỔNG KẾT (CSV) ---
-    // Định dạng: Denom,BestCost,BestIter,Runtime
     stringstream ss;
-    ss << fixed << setprecision(2) << denom << ","
-       << bestCost << ","
-       << bestIter << ","
-       << fixed << setprecision(4) << runtime;
+    ss << fixed << setprecision(2) << denom << "," << bestCost << "," << bestIter << "," << fixed << setprecision(4) << runtime;
     return ss.str();
 }
 
@@ -361,10 +361,8 @@ string runTabuSearch(const string& instanceName, int denom, int maxIterations) {
 int main(int argc, char* argv[]) {
     srand(unsigned(time(0))); 
     
-    // YÊU CẦU: ./tsp-solver [instance_file] [denom] [max_iter]
     if (argc != 4) {
-        cerr << "Cách sử dụng: ./tsp-solver <instance_file> <tabu_denominator> <max_iterations>" << endl;
-        cerr << "Ví dụ: ./tsp-solver eil51.tsp 10 2000" << endl;
+        cerr << "Usage: ./tsp-solver <file> <denom> <iter>" << endl;
         return 1;
     }
 
@@ -375,7 +373,6 @@ int main(int argc, char* argv[]) {
     readInput(filename); 
 
     if (N > 0) {
-        // In ra kết quả tổng kết cuối cùng (dạng CSV)
         cout << runTabuSearch(filename, denom, maxIterations) << endl; 
     } 
     return 0;
